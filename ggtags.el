@@ -2,7 +2,7 @@
 
 ;; Author: dalu <mou.tong@qq.com>
 ;; Maintainer: dalu <mou.tong@qq.com>
-;; Version: 0.1.0
+;; Version: 0.1.1
 ;; Package-Requires: ((emacs "25"))
 ;; Homepage: https://github.com/dalugm/ggtags
 ;; Keywords: tools, convenience
@@ -633,7 +633,7 @@ buffers whose `default-directory' can often change."
     val))
 
 (defun ggtags-visit-project-root (&optional project)
-  "Visit the root directory of (current) PROJECT in dired.
+  "Visit the root directory of (current) PROJECT in Dired.
 When called with a prefix \\[universal-argument], choose from past projects."
   (interactive (list (and current-prefix-arg
                           (completing-read "Project: " ggtags-projects))))
@@ -1442,7 +1442,7 @@ Use \\[jump-to-register] to restore the search session."
   (or (and file (file-exists-p file)) (error "File `%s' doesn't exist" file))
   (ggtags-check-project)
   (or (file-exists-p (expand-file-name "HTML" (ggtags-current-project-root)))
-      (if (yes-or-no-p "No hypertext form exists. run htags? ")
+      (if (yes-or-no-p "No hypertext form exists.  run htags? ")
           (let ((default-directory (ggtags-current-project-root)))
             (ggtags-with-current-project (ggtags-process-string "htags")))
         (user-error "Aborted")))
@@ -2066,8 +2066,9 @@ Enable with positive ARG and disable with negative ARG."
   "Lighter for `ggtags-navigation-mode', set to nil to disable it.")
 
 (define-minor-mode ggtags-navigation-mode
-  "If `ggtags-enable-navigation-keys' is set to nil only display the
-lighter in `ggtags-mode' buffers.  See
+  "Navigation in ggtags.
+If `ggtags-enable-navigation-keys' is set to nil, only display
+the lighter in `ggtags-mode' buffers.  See
 https://github.com/leoliu/ggtags/issues/124."
   :lighter (:eval (and (or ggtags-enable-navigation-keys
                            ggtags-mode)
@@ -2525,13 +2526,31 @@ When OLD string existed, reset string instead init string."
 
 (defconst ggtags--xref-limit 1000)
 
-(defclass ggtags-xref-location (xref-file-location)
-  ((project-root :type string :initarg :project-root)))
+(cl-defstruct (ggtags-xref-location
+               (:constructor
+                ggtags-make-xref-location
+                (file line column project-root)))
+  file line column project-root)
 
 (cl-defmethod xref-location-group ((l ggtags-xref-location))
   "Implement `xref-location-group' with location L."
-  (with-slots (file project-root) l
-    (file-relative-name file project-root)))
+  (file-relative-name
+   (ggtags-xref-location-file l)
+   (ggtags-xref-location-project-root l)))
+
+(cl-defmethod xref-location-marker ((l ggtags-xref-location))
+  "Implement `xref-location-marker' with location L."
+  (let ((buffer (find-file-noselect (ggtags-xref-location-file l))))
+    (with-current-buffer buffer
+      (save-excursion
+        (goto-char (point-min))
+        (forward-line (1- (ggtags-xref-location-line l)))
+        (move-to-column (1- (ggtags-xref-location-column l)))
+        (point-marker)))))
+
+(cl-defmethod xref-location-line ((l ggtags-xref-location))
+  "Implement `xref-location-line' with location L."
+  (ggtags-xref-location-line l))
 
 (defun ggtags--xref-backend ()
   "Ggtags xref backend."
@@ -2575,12 +2594,11 @@ properties in the summary text of each xref."
    and when column
    collect (xref-make
             summary
-            (make-instance
-             'ggtags-xref-location
-             :file file
-             :line line
-             :column column
-             :project-root root))))
+            (ggtags-make-xref-location
+             file
+             line
+             column
+             root))))
 
 (defun ggtags--xref-find-tags (tag cmd)
   "Find xrefs of TAG using Global CMD.
